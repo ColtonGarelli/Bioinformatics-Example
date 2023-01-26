@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../../../Volumes/mystuff/umms/To Archive/Richmond Lab/notebooks/dog paper/data/GSE81071"
+		}
+	],
+	"settings": {
+		"autoDocstring.startOnNewLine": true
+	}
+}

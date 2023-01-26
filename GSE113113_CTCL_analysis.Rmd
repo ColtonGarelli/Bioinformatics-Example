@@ -1,0 +1,194 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(BiocManager)
+# BiocManager::install('oligo')
+# BiocManager::install('affy')
+# BiocManager::install('sva')
+# BiocManager::install('limma')
+# BiocManager::install('RSQLite')
+# BiocManager::install('hrbrthemes')
+# BiocManager::install('edgeR')
+library(edgeR)
+library(ggplot2)
+library(oligo)
+library(limma)
+library(sva)
+library(Biobase)
+```
+
+
+```{r}
+# Load probeset information
+f <-"/Users/coltongarelli/Desktop/DLE paper data/data/human/files/raw files/GSE113113_data_final.txt"
+# fd<-read.AnnotatedDataFrame(paste(wdir, "/GPL19983_hugene21st_Hs_ENTREZG_desc.txt.gz", sep=""),header=TRUE ,sep="\t")
+# Load the expression data
+data <- read.csv(f, sep='\t')
+data <- data[!duplicated(data[,1]),]
+row.names(data) <- data[,1]
+data <- data[,-1]
+data <- (data)^2
+data <- round(data)
+# countdata <- data
+
+# myCPM <- cpm(countdata)
+# thresh <- myCPM > 0.5
+# keep <- rowSums(thresh) >= 2
+# counts.keep <- countdata[keep,]
+# summary(keep)
+# dim(counts.keep)
+# dgeObj <- calcNormFactors(dgeObj)
+# dgeObj$samples
+```
+
+
+```{r}
+
+GSE = "GSE113113"
+# plot(myCPM[,1],countdata[,1])
+# dgeObj <- DGEList(counts.keep)
+# # have a look at dgeObj
+# dgeObj
+# # See what slots are stored in dgeObj
+# names(dgeObj)
+# # Library size information is stored in the samples slot
+# dgeObj$samples
+
+# Geoquery refuses to download expression data, so we will manually combine that with d
+d_data <- GEOquery::getGEO('GSE113113', GSEMatrix = TRUE, AnnotGPL = TRUE)
+d_data <- d_data$GSE113113_series_matrix.txt.gz
+# combine expression eset d with data eset d_data
+d <- ExpressionSet(as.matrix(data))
+sampleNames(d_data) <- sampleNames(d)
+featureData(d_data)
+d <- ExpressionSet(as.matrix(data), phenoData = AnnotatedDataFrame(pData(d_data)))
+exprs(d) <- exprs(d)^2
+```
+
+
+```{r}
+sampleType <- sampleNames(d)
+sampleType[grep("S", colnames(d))] <- 1
+sampleType[grep("WD", colnames(d))] <- 0
+d@phenoData$sampleType <- sampleType
+
+stages <- d@phenoData@data$`tumor stage:ch1`
+stages[grep("Normal", stages)] <- 0
+stages[grep("IVA*", stages)] <- 2
+stages[grep("IIB", stages)] <- 2
+stages[grep("IA", stages)] <- 1
+stages[grep("IB", stages)] <- 1
+d@phenoData$stages <- stages
+normal <- d[,d@phenoData$stages == 0]
+stage1 <- d[,d@phenoData$stages == 1]
+stage2 <- d[,d@phenoData$stages == 2]
+stage3 <- d[,d@phenoData$stages == 3]
+
+# sample_stages <- vector(mode='list', length = 52)
+# names(sample_stages) <- c(0, 1, 2,3)
+# sample_stages[[1]] <- colnames(d[,d@phenoData$stages == 0])
+# sample_stages[[2]] <- colnames(d[,d@phenoData$stages == 1])
+# sample_stages[[3]] <- colnames(d[,d@phenoData$stages == 2])
+# sample_stages[[4]] <- colnames(d[,d@phenoData$stages == 3])
+
+```
+calc stage 1
+```{r}
+designMat <- model.matrix(~c(stages[stages == 1], stages[stages==0]))
+s1 <- Biobase::combine(normal, stage1)
+colnames(designMat)<- levels(sampleType)
+dgeObj <- DGEList(s1)
+dgeObj <- estimateGLMCommonDisp(dgeObj, design=designMat)
+dgeObj <- estimateGLMTrendedDisp(dgeObj, design=designMat)
+dgeObj <- estimateGLMTagwiseDisp(dgeObj, design=designMat)
+plotBCV(dgeObj)
+fit <- glmFit(dgeObj, designMat)
+lrt <- glmLRT(fit, coef=2)
+glmLRT(fit, coef=ncol(fit$design), contrast=NULL)
+edgeR_result <- topTags(lrt, n=100000)
+edgeR_result
+write.csv(edgeR_result, '/Users/coltongarelli/Desktop/GSE113113_stage1_DE.csv')
+
+```
+
+```{r}
+designMat <- model.matrix(~c(stages[stages == 2], stages[stages==0]))
+s2 <- Biobase::combine(normal, stage2)
+colnames(designMat)<- levels(sampleType)
+dgeObj <- DGEList(s2)
+dgeObj <- estimateGLMCommonDisp(dgeObj, design=designMat)
+dgeObj <- estimateGLMTrendedDisp(dgeObj, design=designMat)
+dgeObj <- estimateGLMTagwiseDisp(dgeObj, design=designMat)
+plotBCV(dgeObj)
+fit <- glmFit(dgeObj, designMat)
+lrt <- glmLRT(fit, coef=2)
+glmLRT(fit, coef=ncol(fit$design), contrast=NULL)
+edgeR_result <- topTags(lrt, n=100000)
+edgeR_result
+write.csv(edgeR_result, '/Users/coltongarelli/Desktop/GSE113113_stage2_DE.csv')
+```
+
+```{r}
+designMat <- model.matrix(~c(stages[stages == 3], stages[stages==0]))
+s3  <- Biobase::combine(normal, stage3)
+colnames(designMat)<- levels(sampleType)
+dgeObj <- DGEList(s3)
+dgeObj <- estimateGLMCommonDisp(dgeObj, design=designMat)
+dgeObj <- estimateGLMTrendedDisp(dgeObj, design=designMat)
+dgeObj <- estimateGLMTagwiseDisp(dgeObj, design=designMat)
+plotBCV(dgeObj)
+fit <- glmFit(dgeObj, designMat)
+lrt <- glmLRT(fit, coef=2)
+glmLRT(fit, coef=ncol(fit$design), contrast=NULL)
+edgeR_result <- topTags(lrt, n=100000)
+edgeR_result
+write.csv(edgeR_result, '/Users/coltongarelli/Desktop/GSE113113_stage3_DE.csv')
+```
+
+```{r}
+# designMat <- model.matrix(~c(stages[stages==4], stages[stages == 0]))
+s4 <- Biobase::combine(normal, stage1)
+colnames(designMat)<- levels(sampleType)
+
+ex <- log2(exprs(d))
+fit <- lmFit(ex, designMat)
+fit <- eBayes(fit)
+tops <- topTable(fit, n = Inf, coef = 2)
+plotMD(tops)
+write.csv(tops, '/Users/coltongarelli/Desktop/GSE113113_stage4_DE_toptable.csv')
+
+designMat <- model.matrix(~sampleType)
+# ex <- log2(exprs(d))
+fit <- lmFit(ex, designMat)
+fit <- eBayes(fit)
+tops <- topTable(fit, sort.by = 'p', n = Inf, coef = 2)
+tops <- na.omit(tops)
+tops <- tops[!is.infinite(rowSums(tops)),]
+write.csv(tops, '/Users/coltongarelli/Desktop/GSE113113_all_DE_toptable.csv')
+data <- na.omit(data)
+tops <- tops[!is.infinite(rowSums(data)),]
+# dgeObj <- DGEList(s1)
+# dgeObj <- estimateGLMCommonDisp(dgeObj, design=designMat)
+# dgeObj <- estimateGLMTrendedDisp(dgeObj, design=designMat)
+# dgeObj <- estimateGLMTagwiseDisp(dgeObj, design=designMat)
+# plotBCV(dgeObj)
+# fit <- glmFit(dgeObj, designMat)
+# lrt <- glmLRT(fit, coef=2)
+# glmLRT(fit, coef=ncol(fit$design), contrast=NULL)
+# edgeR_result <- topTags(lrt, n=100000)
+# edgeR_result
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+

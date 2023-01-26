@@ -1,0 +1,160 @@
+---
+title: "Example R Markdown Notebook"
+output:
+  html_document:
+    df_print: paged
+jupyter:
+  kernelspec:
+    display_name: R
+    language: R
+    name: ir
+  language_info:
+    codemirror_mode: r
+    file_extension: .r
+    mimetype: text/x-r-source
+    name: R
+    pygments_lexer: r
+    version: 3.4.3
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r echo=FALSE, include=FALSE, message=FALSE}
+devtools::install_version('BiocManager', version = '3.10')
+library(BiocManager)
+# BiocManager::install('oligo')
+# BiocManager::install('affy')
+# BiocManager::install('sva')
+# BiocManager::install('limma')
+# BiocManager::install('RSQLite')
+# BiocManager::install('hrbrthemes')
+library('hugene21stprobeset.db')
+library('hugene21sttranscriptcluster.db')
+library('pd.hugene.2.1.st')
+# pd.hugene.2.1.st::pd.hugene.2.1.st@tableInfo$tbl
+library(oligo)
+library(limma)
+library(sva)
+library(ggplot2)
+```
+
+
+```{r echo=FALSE, include=FALSE, message=FALSE}
+# https://www.bioconductor.org/packages/devel/workflows/vignettes/RNAseq123/inst/doc/limmaWorkflow.html
+
+
+# Load probeset information
+
+GEOquery::getGEOSuppFiles("GSE119207", baseDir = "data")
+# Load the expression data
+wdir <-"data/GSE119207_RAW"
+# data <- oligo::read.celfiles(filenames=affy::list.celfiles(wdir, full.names = TRUE))
+```
+
+
+
+```{r}
+samples <- sub('.*?_', '', sampleNames(data))
+samples <- sub('.*?_', '', samples)
+samples <- sub('*_.CEL.gz', '', samples)
+sampleNames(data) <- sample
+
+```
+normalize probes
+```{r}
+data.rma <- oligo::rma(data)
+data.rma
+```
+assign sample states
+```{r}
+samples <- sampleNames(data.rma)
+samples[grep("1_MW", colnames(data.rma))] <- 0
+samples[grep("2_MW", colnames(data.rma))] <- 0
+samples[grep("3_MW", colnames(data.rma))] <- 0
+samples[grep("4_MW", colnames(data.rma))] <- 0
+samples[grep("L", colnames(data.rma))] <- 1
+samples[grep("17_MW", colnames(data.rma))] <- 1
+samples[grep("15_MW", colnames(data.rma))] <- 1
+samples[grep("N", colnames(data.rma))] <- 1
+samples[grep("18_MW", colnames(data.rma))] <- 1
+samples[grep("16_MW", colnames(data.rma))] <- 1
+
+status <- samples
+data.rma@phenoData$status <- samples
+
+
+# idx 1-4 are healthy after that sort by n and l
+samples <- sampleNames(data.rma)
+samples[grep("L", colnames(data.rma))] <- "Lesional"
+samples[grep("17_MW", colnames(data.rma))] <- "Lesional"
+samples[grep("15_MW", colnames(data.rma))] <- "Lesional"
+samples[grep("N", colnames(data.rma))] <- "Nonlesional"
+samples[grep("18_MW", colnames(data.rma))] <- "Nonlesional"
+samples[grep("16_MW", colnames(data.rma))] <- "Nonlesional"
+samples[grep("1_MW", colnames(data.rma))] <- "Healthy"
+samples[grep("2_MW", colnames(data.rma))] <- "Healthy"
+samples[grep("3_MW", colnames(data.rma))] <- "Healthy"
+samples[grep("4_MW", colnames(data.rma))] <- "Healthy"
+data.rma@phenoData$sampleType <- samples
+
+
+lesional <- data.rma[,data.rma@phenoData$sampleType == "Lesional"]
+h <- data.rma[,data.rma@phenoData$sampleType == "Healthy"]
+h_l <- combine(lesional, h)
+patients <- c(1,2,3,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11)
+
+```
+
+```{r}
+samps <- factor(pData(h_l)$sampleType)
+d_mod <- model.matrix(~0 + samps)
+colnames(d_mod) <- c('Healthy', "Lesional")
+cont <- makeContrasts("Lesional - Healthy", levels=d_mod)
+
+d_fit <- limma::lmFit(exprs(h_l), d_mod)
+d_fit <- contrasts.fit(d_fit, cont)
+d_bay <- limma::eBayes(d_fit) 
+data.de <- limma::topTable(d_bay, genelist = , adjust.method = 'BH', sort.by = 'p', number = 10000, coef = 1)
+```
+
+
+```{r} 
+out <- na.omit(AnnotationDbi::select(hugene21sttranscriptcluster.db,
+                             keys = probeNames(data),
+                             columns = c('SYMBOL', 'GENENAME', 'ENTREZID'),
+                             keytype = "PROBEID"))
+
+data.de$PROBEID <- rownames(data.de)
+data.to.plot <-merge(out, data.de, by.y = c("PROBEID"), sort = FALSE)
+# aggregate(exprs(data.rma), by = list(rownames(exprs(data.rma))), FUN = mean, na.rm = TRUE)
+data.final <- unique(data.to.plot)
+data.final <- na.omit(data.final)
+data.final
+write.csv(data.final, "/Users/coltongarelli/Desktop/DLE paper data/data/human/files/GSE119207_DLE.csv")
+
+```
+
+
+```{r}
+# rma_pca <- prcomp(t(exprs(data.rma)))
+# r_pca <- as.data.frame(rma_pca$x[, 1:2])
+# r_pca$color <- pData(data.rma)$sampleType
+# batch_pca <- prcomp(t(data.normed_batched))
+# b_pca <- as.data.frame(batch_pca$x[, 1:2])
+# b_pca$color <- (c(batch1, batch2))
+# r = ggplot(r_pca, aes(PC1, PC2, color=color))
+# r <- r+geom_point()+ geom_text(aes(label=data.rma@phenoData$sampleType, hjust=0, vjust=0),  size=2)
+# b = ggplot(b_pca, aes(PC1, PC2, color=color), label = colnames(data.normed_batched))
+# b <- c+geom_point() + geom_text(aes(label=data@phenoData$groups, hjust=0, vjust=0), position = position_dodge(width=0.9),  size=2)
+# gridExtra::grid.arrange(r, b, ncol=2)
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
